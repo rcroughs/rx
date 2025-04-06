@@ -40,9 +40,56 @@ impl FileExplorer {
                 name.to_string()
             };
 
-            terminal::display_entry(&display_name, i as u16, i == self.selected);
+            let created = fs::metadata(entry)
+                .and_then(|meta| meta.created())
+                .unwrap_or_else(|_| std::time::SystemTime::now());
+
+            terminal::display_entry(&display_name, created, i as u16, i == self.selected);
         }
         terminal::flush();
+    }
+
+    fn increment_selected(&mut self) {
+        if self.selected < self.entries.len() - 1 {
+            self.selected += 1;
+        }
+    }
+
+    fn decrement_selected(&mut self) {
+        if self.selected > 0 {
+            self.selected -= 1;
+        }
+    }
+
+    fn goto_header(&mut self) {
+        if self.selected > 0 {
+            self.selected = 0;
+        }
+    }
+
+    fn goto_footer(&mut self) {
+        if self.selected < self.entries.len() - 1 {
+            self.selected = self.entries.len() - 1;
+        }
+    }
+
+    fn goto_selected(&mut self) {
+        if self.selected < self.entries.len() {
+            let selected_path = &self.entries[self.selected];
+            if selected_path.is_dir() {
+                std::env::set_current_dir(&selected_path).unwrap();
+                self.entries = Self::read_dir_entries(&selected_path);
+                self.current_path = self.entries[self.selected].clone();
+                self.selected = 0;
+            } else {
+                terminal::cleanup();
+                Command::new("nvim")
+                    .arg(selected_path)
+                    .status()
+                    .unwrap();
+                terminal::init();
+            }
+        }
     }
 
     pub fn run(&mut self) -> Option<PathBuf> {
@@ -57,30 +104,11 @@ impl FileExplorer {
                         terminal::cleanup();
                         return None;
                     }
-                    KeyCode::Char('j') => {
-                        if self.selected < self.entries.len() - 1 {
-                            self.selected += 1;
-                        }
-                    }
-                    KeyCode::Char('k') => {
-                        if self.selected > 0 {
-                            self.selected -= 1;
-                        }
-                    }
-                    KeyCode::Enter => {
-                        let selected_path = &self.entries[self.selected];
-                        if selected_path.is_dir() {
-                            terminal::cleanup();
-                            return Some(selected_path.clone());
-                        } else {
-                            terminal::cleanup();
-                            Command::new("nvim")
-                                .arg(selected_path)
-                                .status()
-                                .unwrap();
-                            terminal::init();
-                        }
-                    }
+                    KeyCode::Char('j') | KeyCode::Down => self.increment_selected(),
+                    KeyCode::Char('k') | KeyCode::Up => self.decrement_selected(),
+                    KeyCode::Char('G') | KeyCode::End => self.goto_footer(),
+                    KeyCode::Char('g') | KeyCode::Home => self.goto_header(),
+                    KeyCode::Enter => self.goto_selected(),
                     _ => {}
                 }
             }
