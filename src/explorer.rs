@@ -34,6 +34,13 @@ impl FileExplorer {
     fn display(&self) {
         terminal::clear_screen();
 
+        let max_width: usize = self.entries
+            .iter()
+            .skip(1)
+            .map(|entry| entry.file_name().unwrap().to_string_lossy().len())
+            .max()
+            .unwrap_or(0);
+
         for (i, entry) in self.entries.iter().enumerate() {
             let display_name = if i == 0 {
                 "../".to_string()  // Special case for parent directory
@@ -47,7 +54,7 @@ impl FileExplorer {
                 .and_then(|meta| meta.created())
                 .unwrap_or_else(|_| std::time::SystemTime::now());
 
-            terminal::display_entry(&display_name, created, i as u16, i == self.selected);
+            terminal::display_entry(&display_name, created, i as u16, i == self.selected, max_width);
         }
         terminal::flush();
     }

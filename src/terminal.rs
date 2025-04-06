@@ -29,7 +29,7 @@ fn print_time(created: SystemTime) -> String {
     time.format("%a %b %e %H:%M:%S %Y").to_string()
 }
 
-pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool) {
+pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, max_width: usize) {
     let styled_name;
     let styled_created;
     if selected {
@@ -42,7 +42,7 @@ pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool) 
         styled_created = print_time(created).stylize();
     }
     queue!(stdout(), cursor::MoveTo(1, row), style::PrintStyledContent(styled_name)).unwrap();
-    queue!(stdout(), cursor::MoveTo(16, row), style::PrintStyledContent(styled_created)).unwrap();
+    queue!(stdout(), cursor::MoveTo((max_width + 5) as u16, row), style::PrintStyledContent(styled_created)).unwrap();
 }
 
 pub fn flush() {
