@@ -22,22 +22,25 @@ impl FileExplorer {
     }
 
     fn read_dir_entries(path: &Path) -> Vec<PathBuf> {
-        fs::read_dir(path)
+        let mut entries = vec![path.join("..")];
+        entries.extend(fs::read_dir(path)
             .unwrap()
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
-            .collect()
+        );
+        entries
     }
 
     fn display(&self) {
         terminal::clear_screen();
 
         for (i, entry) in self.entries.iter().enumerate() {
-            let name = entry.file_name().unwrap().to_string_lossy();
-            let display_name = if entry.is_dir() {
-                format!("{}/", name)
+            let display_name = if i == 0 {
+                "../".to_string()  // Special case for parent directory
+            } else if entry.is_dir() {
+                format!("{}/", entry.file_name().unwrap().to_string_lossy())
             } else {
-                name.to_string()
+                entry.file_name().unwrap().to_string_lossy().to_string()
             };
 
             let created = fs::metadata(entry)
@@ -78,8 +81,8 @@ impl FileExplorer {
             let selected_path = &self.entries[self.selected];
             if selected_path.is_dir() {
                 std::env::set_current_dir(&selected_path).unwrap();
-                self.entries = Self::read_dir_entries(&selected_path);
-                self.current_path = self.entries[self.selected].clone();
+                self.current_path = std::env::current_dir().unwrap();
+                self.entries = Self::read_dir_entries(&self.current_path);
                 self.selected = 0;
             } else {
                 terminal::cleanup();
