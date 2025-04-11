@@ -1,8 +1,6 @@
-use crossterm::{cursor, event, execute, queue, style, style::{Stylize, Color}};
-use std::io::{stdout, Write};
-use std::time::SystemTime;
+use crossterm::{cursor, event, queue, style};
+use std::io::{stdout};
 use crossterm::event::{Event, KeyCode};
-use serde::Serialize;
 use crate::config::Config;
 use crate::terminal;
 
