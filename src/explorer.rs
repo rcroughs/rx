@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use crossterm::event::{self, Event, KeyCode};
+use crate::config::Config;
 use crate::terminal;
 
 pub struct FileExplorer {
@@ -12,10 +13,11 @@ pub struct FileExplorer {
     search_mode: bool,
     search_match: Vec<usize>,
     current_match: usize,
+    config: Config,
 }
 
 impl FileExplorer {
-    pub fn new() -> Self {
+    pub fn new(config: Config) -> Self {
         let current_path = std::env::current_dir().unwrap();
         let entries = Self::read_dir_entries(&current_path);
         FileExplorer {
@@ -26,6 +28,7 @@ impl FileExplorer {
             search_mode:     false,
             search_match:    vec![],
             current_match: 0,
+            config
         }
     }
 
@@ -75,7 +78,7 @@ impl FileExplorer {
                 .unwrap_or_else(|_| std::time::SystemTime::now());
 
             let is_match = !self.search_query.is_empty() && self.search_match.contains(&i);
-            terminal::display_entry(&display_name, created, i as u16, i == self.selected, max_width, is_match);
+            terminal::display_entry(&display_name, created, i as u16, i == self.selected, max_width, is_match, self.config.nerd_fonts);
         }
 
         if self.search_mode {

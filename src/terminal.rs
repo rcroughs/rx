@@ -1,10 +1,11 @@
 use crossterm::{
     cursor, execute, queue, style,
     terminal::{self, ClearType},
-    style::Stylize,
+    style::{Stylize, Color},
 };
 use std::io::{stdout, Write};
 use std::time::SystemTime;
+use crate::icons;
 
 pub fn init() {
     queue!(stdout(), cursor::Hide).unwrap();
@@ -40,26 +41,55 @@ pub fn display_search(query: &str, row: u16) {
     queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
 }
 
-pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, max_width: usize, is_match: bool) {
+pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, max_width: usize, is_match: bool, nerd_fonts: bool) {
     let mut styled_name;
     let mut styled_created;
+
+    let selected_fg = Color::Rgb{
+        r: 242,
+        g: 205,
+        b: 205
+    };
+    let normal_fg = Color::Rgb{
+        r:166,
+        g:173,
+        b:200
+    };
+    let match_fg = Color::Rgb{
+        r:166,
+        g: 227,
+        b: 161
+    };
+    let selected_bg = Color::Rgb{
+        r: 69,
+        g: 71,
+        b:90
+    };
+
     if selected {
         queue!(stdout(), cursor::MoveTo(0, row), style::Print(">")).unwrap();
-        styled_name = name.bold().bold();
-        styled_created = print_time(created).bold();
+        styled_name = name.with(selected_fg).on(selected_bg);
+        styled_created = print_time(created).with(selected_fg).on(selected_bg);
     } else {
         queue!(stdout(), style::ResetColor).unwrap();
-        styled_name = name.stylize();
-        styled_created = print_time(created).stylize();
+        styled_name = name.with(normal_fg);
+        styled_created = print_time(created).with(normal_fg);
     }
+
     if is_match {
-        styled_name = styled_name.green();
-        styled_created = styled_created.green();
+        styled_name = styled_name.with(match_fg);
+        styled_created = styled_created.with(match_fg);
     } else {
         queue!(stdout(), cursor::Hide).unwrap();
     }
-    queue!(stdout(), cursor::MoveTo(1, row), style::PrintStyledContent(styled_name)).unwrap();
-    queue!(stdout(), cursor::MoveTo((max_width + 5) as u16, row), style::PrintStyledContent(styled_created)).unwrap();
+
+    if nerd_fonts {
+        let nerd_font_icon = icons::get_file_icon(name).with(normal_fg);
+        queue!(stdout(), cursor::MoveTo(1, row), style::PrintStyledContent(nerd_font_icon)).unwrap();
+    }
+
+    queue!(stdout(), cursor::MoveTo(3, row), style::PrintStyledContent(styled_name)).unwrap();
+    queue!(stdout(), cursor::MoveTo((max_width + 7) as u16, row), style::PrintStyledContent(styled_created)).unwrap();
 }
 
 pub fn flush() {
