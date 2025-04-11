@@ -42,7 +42,7 @@ pub fn display_search(query: &str, row: u16) {
 }
 
 pub(crate) fn display_create(text: &String, row: u16) {
-    queue!(stdout(), cursor::MoveTo(0, row), style::Print("Search: ")).unwrap();
+    queue!(stdout(), cursor::MoveTo(0, row), style::Print("Create: ")).unwrap();
     queue!(stdout(), cursor::MoveTo(8, row), style::Print(text)).unwrap();
     queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
 }

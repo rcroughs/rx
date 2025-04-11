@@ -7,8 +7,13 @@ mod explorer;
 mod terminal;
 mod icons;
 mod config;
+mod history;
+mod error;
+mod file_ops;
+mod search;
 
 use explorer::FileExplorer;
+use error::Result;
 
 #[derive(Parser)]
 #[command(author, version, about)]
@@ -18,14 +23,15 @@ struct Args {
 }
 
 
-fn main() {
+fn main() -> Result<()> {
     let args = Args::parse();
     let config = config::get_config();
-    let mut explorer = FileExplorer::new(config);
-    if let Some(path) = explorer.run() {
+    let mut explorer = FileExplorer::new(config)?;
+    if let Some(path) = explorer.run()? {
         if args.out {
             execute!(stdout(), Clear(ClearType::All)).unwrap();
             println!("{}\n", path.display());
         }
     }
+    Ok(())
 }
