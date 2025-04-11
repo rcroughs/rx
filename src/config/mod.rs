@@ -10,7 +10,7 @@ pub struct Config {
 pub fn get_config() -> Config {
     let config_path = dirs::config_dir()
         .unwrap()
-        .join("rexp")
+        .join("rx")
         .join("config.toml");
     if !config_path.exists() {
         let config = launch_config();
