@@ -14,6 +14,9 @@ pub struct FileExplorer {
     search_match: Vec<usize>,
     current_match: usize,
     config: Config,
+    delete_mode: Option<usize>,
+    create_mode: bool,
+    create_query: String,
 }
 
 impl FileExplorer {
@@ -28,7 +31,10 @@ impl FileExplorer {
             search_mode:     false,
             search_match:    vec![],
             current_match: 0,
-            config
+            config,
+            delete_mode:     None,
+            create_mode : false,
+            create_query:    String::new(),
         }
     }
 
@@ -79,11 +85,22 @@ impl FileExplorer {
 
             let is_match = !self.search_query.is_empty() && self.search_match.contains(&i);
             terminal::display_entry(&display_name, created, i as u16, i == self.selected, max_width, is_match, self.config.nerd_fonts);
+            match self.delete_mode {
+                Some(index) if index == i => {
+                    terminal::display_delete_warning(i);
+                }
+                _ => {}
+            }
         }
 
         if self.search_mode {
             terminal::display_search(&self.search_query, terminal::size_of_terminal().0 - 1);
         }
+
+        if self.create_mode {
+            terminal::display_create(&self.create_query, terminal::size_of_terminal().0 - 1);
+        }
+
 
         terminal::flush();
     }
@@ -138,16 +155,27 @@ impl FileExplorer {
             self.display();
 
             if let Event::Key(key_event) = event::read().unwrap() {
+                if key_event.code != KeyCode::Char('d') {
+                    self.delete_mode = None;
+                }
+
                 match key_event.code {
                     KeyCode::Char('/') if !self.search_mode => self.enter_search_mode(),
                     KeyCode::Char('n') if !self.search_mode => self.next_search_match(),
                     KeyCode::Enter if self.search_mode => self.handle_search_input('\n'),
+                    KeyCode::Enter if self.create_mode => self.handle_create_input('\n'),
                     KeyCode::Backspace if self.search_mode => self.handle_search_input('\x7f'),
-                    KeyCode::Esc => {
+                    KeyCode::Backspace if self.create_mode => self.handle_create_input('\x7f'),
+                    KeyCode::Esc if self.search_mode => {
                         self.search_mode = false;
                         self.search_query.clear();
                         self.search_match.clear();
                     }
+                    KeyCode::Esc if self.create_mode => {
+                        self.create_mode = false;
+                        self.create_query.clear();
+                    }
+                    KeyCode::Char(c) if self.create_mode => self.handle_create_input(c),
                     KeyCode::Char(c) if self.search_mode => self.handle_search_input(c),
                     KeyCode::Char('q') => {
                         terminal::cleanup();
@@ -157,11 +185,36 @@ impl FileExplorer {
                     KeyCode::Char('k') | KeyCode::Up => self.decrement_selected(),
                     KeyCode::Char('G') | KeyCode::End => self.goto_footer(),
                     KeyCode::Char('g') | KeyCode::Home => self.goto_header(),
+                    KeyCode::Char('d') => self.delete(),
+                    KeyCode::Char('a') => self.enter_create_mode(),
                     KeyCode::Enter => self.goto_selected(),
                     _ => {}
                 }
             }
         }
+    }
+
+    fn delete(&mut self) {
+        if self.selected > 0 && self.selected < self.entries.len() {
+            let selected_path = &self.entries[self.selected];
+            if self.delete_mode.is_none() {
+                self.delete_mode = Some(self.selected);
+                return;
+            } else {
+                if selected_path.is_dir() {
+                    fs::remove_dir_all(selected_path).unwrap();
+                } else {
+                    fs::remove_file(selected_path).unwrap();
+                }
+                self.entries.remove(self.selected);
+                self.delete_mode = None;
+            }
+        }
+    }
+
+    fn enter_create_mode(&mut self) {
+        self.create_mode = true;
+        self.create_query.clear();
     }
 
     fn enter_search_mode(&mut self) {
@@ -182,6 +235,27 @@ impl FileExplorer {
             self.search_query.pop();
         } else {
             self.search_query.push(c);
+        }
+    }
+
+    fn handle_create_input(&mut self, c: char) {
+        if c == '\n' {
+            if !self.create_query.is_empty() {
+                if self.create_query.ends_with('/') {
+                    fs::create_dir(self.current_path.join(&self.create_query)).unwrap();
+                } else {
+                    fs::File::create(self.current_path.join(&self.create_query)).unwrap();
+                }
+                self.entries = Self::read_dir_entries(&self.current_path);
+                self.selected = self.entries.len() - 1;
+                self.create_query.clear();
+
+            }
+            self.create_mode = false;
+        } else if c == '\x7f' { // Backspace
+            self.create_query.pop();
+        } else {
+            self.create_query.push(c);
         }
     }
 

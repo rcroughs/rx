@@ -41,6 +41,12 @@ pub fn display_search(query: &str, row: u16) {
     queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
 }
 
+pub(crate) fn display_create(text: &String, row: u16) {
+    queue!(stdout(), cursor::MoveTo(0, row), style::Print("Search: ")).unwrap();
+    queue!(stdout(), cursor::MoveTo(8, row), style::Print(text)).unwrap();
+    queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
+}
+
 pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, max_width: usize, is_match: bool, nerd_fonts: bool) {
     let mut styled_name;
     let mut styled_created;
@@ -94,4 +100,14 @@ pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, 
 
 pub fn flush() {
     stdout().flush().unwrap();
+}
+
+pub fn display_delete_warning(row: usize) {
+    let warning = "Press d again to delete";
+    let styled_warning = warning.with(Color::Rgb{
+        r: 243,
+        g: 139,
+        b: 168
+    }).italic();
+    queue!(stdout(), cursor::MoveTo(50, row as u16), style::PrintStyledContent(styled_warning)).unwrap();
 }
