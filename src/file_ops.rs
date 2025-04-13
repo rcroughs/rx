@@ -117,3 +117,8 @@ pub fn restore_deleted_path(path: &Path, is_dir: bool, content: &Option<Vec<u8>>
     
     Ok(())
 }
+
+pub fn rename_path(old_path: &Path, new_path: &Path) -> Result<()> {
+    fs::rename(old_path, new_path)?;
+    Ok(())
+}

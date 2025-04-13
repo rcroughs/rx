@@ -17,6 +17,10 @@ pub enum Operation {
         path: PathBuf,
         is_dir: bool,
     },
+    Rename {
+        old_path: PathBuf,
+        new_path: PathBuf,
+    },
 }
 
 impl Operation {
@@ -33,6 +37,10 @@ impl Operation {
                 path: path.clone(),
                 is_dir: *is_dir,
             },
+            Self::Rename { old_path, new_path, } => Self::Rename {
+                old_path: old_path.clone(),
+                new_path: new_path.clone(),
+            }
         }
     }
 }

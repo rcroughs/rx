@@ -35,15 +35,9 @@ pub fn size_of_terminal() -> (u16, u16) {
     (width, height)
 }
 
-pub fn display_search(query: &str, row: u16) {
-    queue!(stdout(), cursor::MoveTo(0, row), style::Print("Search: ")).unwrap();
-    queue!(stdout(), cursor::MoveTo(8, row), style::Print(query)).unwrap();
-    queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
-}
-
-pub(crate) fn display_create(text: &String, row: u16) {
-    queue!(stdout(), cursor::MoveTo(0, row), style::Print("Create: ")).unwrap();
-    queue!(stdout(), cursor::MoveTo(8, row), style::Print(text)).unwrap();
+pub fn display_prompt(prefix: &str, query: &str, row: u16) {
+    queue!(stdout(), cursor::MoveTo(0, row), style::Print(prefix)).unwrap();
+    queue!(stdout(), cursor::MoveTo(prefix.len() as u16, row), style::Print(query)).unwrap();
     queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
 }
 

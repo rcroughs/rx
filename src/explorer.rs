@@ -5,31 +5,17 @@ use crate::config::Config;
 use crate::terminal;
 use crate::history::{Operation};
 use crate::file_ops;
-use crate::search::SearchState;
 use crate::error::Result;
-
-pub struct CreateState {
-    pub mode: bool,
-    pub query: String,
-}
-
-impl CreateState {
-    pub fn new() -> Self {
-        Self {
-            mode: false,
-            query: String::new(),
-        }
-    }
-}
+use crate::modes::{Mode, ModeAction};
+use crate::prompt::Prompt;
 
 pub struct FileExplorer {
     current_path: PathBuf,
     entries: Vec<PathBuf>,
     selected: usize,
-    search: SearchState,
+    prompt: Prompt,
     config: Config,
     delete_mode: Option<usize>,
-    create: CreateState,
     history: Vec<Operation>,
     history_index: usize,
 }
@@ -43,10 +29,9 @@ impl FileExplorer {
             current_path,
             entries,
             selected: 1,
-            search: SearchState::new(),
+            prompt: Prompt::new(),
             config,
             delete_mode: None,
-            create: CreateState::new(),
             history: vec![],
             history_index: 0,
         })
@@ -59,12 +44,12 @@ impl FileExplorer {
             self.display_entry(entry, i);
         }
 
-        if self.search.mode {
-            terminal::display_search(&self.search.query, terminal::size_of_terminal().0 - 1);
-        }
-
-        if self.create.mode {
-            terminal::display_create(&self.create.query, terminal::size_of_terminal().0 - 1);
+        if self.prompt.is_active() {
+            terminal::display_prompt(
+                self.prompt.get_prompt_prefix(),
+                self.prompt.get_query(),
+                terminal::size_of_terminal().0 - 1
+            );
         }
 
         terminal::flush();
@@ -92,8 +77,8 @@ impl FileExplorer {
             .and_then(|meta| meta.created())
             .unwrap_or_else(|_| std::time::SystemTime::now());
 
-        let is_match = !self.search.query.is_empty() && self.search.matches.contains(&index);
         let max_width = self.get_max_entry_width();
+        let is_match = self.prompt.is_match(index);
         
         terminal::display_entry(&display_name, created, index as u16, 
             index == self.selected, max_width, is_match, self.config.nerd_fonts);
@@ -106,7 +91,6 @@ impl FileExplorer {
     }
 
     fn navigate(&mut self) -> Result<()> {
-        // Movement operations
         if self.selected < self.entries.len() {
             let selected_path = &self.entries[self.selected];
             if selected_path.is_dir() {
@@ -151,18 +135,15 @@ impl FileExplorer {
         if self.selected > 0 && self.selected < self.entries.len() {
             let selected_path = &self.entries[self.selected];
             
-            // First call - just show warning
             if self.delete_mode.is_none() {
                 self.delete_mode = Some(self.selected);
                 return Ok(());
             } 
             
-            // Second call - actually delete
             let operation = file_ops::prepare_delete_operation(selected_path, self.selected)?;
             
             file_ops::delete_path(selected_path, selected_path.is_dir())?;
             
-            // Update history
             if self.history_index < self.history.len() {
                 self.history.truncate(self.history_index);
             }
@@ -184,7 +165,6 @@ impl FileExplorer {
                 Operation::Delete { path, is_dir, content, position, dir_backup } => {
                     file_ops::restore_deleted_path(path, *is_dir, content, dir_backup)?;
                     
-                    // Update the file list and selection
                     self.entries = file_ops::read_dir_entries(&self.current_path)?;
                     if let Some(pos) = self.entries.iter().position(|p| p == path) {
                         self.selected = pos;
@@ -196,6 +176,15 @@ impl FileExplorer {
                     file_ops::delete_path(path, *is_dir)?;
                     self.entries = file_ops::read_dir_entries(&self.current_path)?;
                     self.selected = self.selected.min(self.entries.len() - 1);
+                }
+                Operation::Rename { old_path, new_path } => {
+                    file_ops::rename_path(new_path, old_path)?;
+                    self.entries = file_ops::read_dir_entries(&self.current_path)?;
+                    if let Some(pos) = self.entries.iter().position(|p| p == new_path) {
+                        self.selected = pos;
+                    } else {
+                        self.selected = self.selected.min(self.entries.len() - 1);
+                    }
                 }
             }
         }
@@ -217,6 +206,12 @@ impl FileExplorer {
                         file_ops::create_file(path)?;
                     }
                 }
+                Operation::Rename {
+                    old_path,
+                    new_path,
+                } => {
+                    file_ops::rename_path(old_path, new_path)?;
+                }
             }
 
             self.history_index += 1;
@@ -229,48 +224,6 @@ impl FileExplorer {
         Ok(())
     }
 
-    fn enter_create_mode(&mut self) {
-        self.create.mode = true;
-        self.create.query.clear();
-    }
-
-    fn handle_create_input(&mut self, c: char) -> Result<()> {
-        match c {
-            '\n' => {
-                if !self.create.query.is_empty() {
-                    let path = self.current_path.join(&self.create.query);
-                    let operation;
-                    
-                    if self.create.query.ends_with('/') {
-                        file_ops::create_directory(&path)?;
-                        operation = Operation::Create {path, is_dir: true};
-                    } else {
-                        file_ops::create_file(&path)?;
-                        operation = Operation::Create {path, is_dir: false};
-                    }
-                    
-                    self.entries = file_ops::read_dir_entries(&self.current_path)?;
-                    self.selected = self.entries.len() - 1;
-                    
-                    if self.history_index < self.history.len() {
-                        self.history.truncate(self.history_index);
-                    }
-                    
-                    self.history.push(operation);
-                    self.history_index += 1;
-                }
-                self.create.mode = false;
-            },
-            '\x7f' => { // Backspace
-                self.create.query.pop();
-            },
-            _ => {
-                self.create.query.push(c);
-            }
-        }
-        Ok(())
-    }
-
     pub fn run(&mut self) -> Result<Option<PathBuf>> {
         terminal::init();
 
@@ -278,46 +231,70 @@ impl FileExplorer {
             self.display();
 
             if let Event::Key(key_event) = event::read()? {
-                // Reset delete mode if not pressing 'd' again
                 if key_event.code != KeyCode::Char('d') {
                     self.delete_mode = None;
                 }
 
+                if self.prompt.is_active() {
+                    match key_event.code {
+                        KeyCode::Esc => self.prompt.set_mode(Mode::Normal),
+                        KeyCode::Enter => {
+                            let selected_path = self.entries.get(self.selected);
+                            if let Some(action) = self.prompt.handle_input(
+                                '\n',
+                                &self.entries,
+                                &self.current_path,
+                                selected_path
+                            )? {
+                                self.handle_mode_action(action)?;
+                            }
+                        },
+                        KeyCode::Char(c) => {
+                            let selected_path = self.entries.get(self.selected);
+                            if let Some(action) = self.prompt.handle_input(
+                                c,
+                                &self.entries,
+                                &self.current_path,
+                                selected_path
+                            )? {
+                                self.handle_mode_action(action)?;
+                            }
+                        },
+                        KeyCode::Backspace => {
+                            let selected_path = self.entries.get(self.selected);
+                            if let Some(action) = self.prompt.handle_input(
+                                '\x7f',
+                                &self.entries,
+                                &self.current_path,
+                                selected_path
+                            )? {
+                                self.handle_mode_action(action)?;
+                            }
+                        },
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 match key_event.code {
-                    KeyCode::Char('/') if !self.search.mode && !self.create.mode => {
-                        self.search.enter_search_mode();
+                    KeyCode::Char('/') => {
+                        self.prompt.set_mode(Mode::Search);
                     },
-                    KeyCode::Char('n') if !self.search.mode && !self.create.mode => {
-                        if let Some(index) = self.search.next_match() {
+                    KeyCode::Char('n') if !self.prompt.is_active() => {
+                        if let Some(index) = self.prompt.next_match() {
                             self.selected = index;
                         }
                     },
-                    KeyCode::Enter if self.search.mode => {
-                        if let Some(index) = self.search.handle_input('\n', &self.entries) {
-                            self.selected = index;
+                    KeyCode::Char('a') => self.prompt.set_mode(Mode::Create),
+                    KeyCode::Char('r') if key_event.modifiers == event::KeyModifiers::CONTROL => self.redo()?,
+                    KeyCode::Char('r') => {
+                        if self.selected > 0 {
+                            let name = self.entries[self.selected]
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy();
+                            self.prompt.set_mode_with_text(Mode::Rename, &name);
                         }
-                    },
-                    KeyCode::Enter if self.create.mode => {
-                        self.handle_create_input('\n')?;
-                    },
-                    KeyCode::Backspace if self.search.mode => {
-                        self.search.handle_input('\x7f', &self.entries);
-                    },
-                    KeyCode::Backspace if self.create.mode => {
-                        self.handle_create_input('\x7f')?;
-                    },
-                    KeyCode::Esc if self.search.mode => {
-                        self.search.reset();
-                    },
-                    KeyCode::Esc if self.create.mode => {
-                        self.create.mode = false;
-                        self.create.query.clear();
-                    },
-                    KeyCode::Char(c) if self.search.mode => {
-                        self.search.handle_input(c, &self.entries);
-                    },
-                    KeyCode::Char(c) if self.create.mode => {
-                        self.handle_create_input(c)?;
                     },
                     KeyCode::Char('q') => {
                         terminal::cleanup();
@@ -328,13 +305,32 @@ impl FileExplorer {
                     KeyCode::Char('G') | KeyCode::End => self.goto_footer(),
                     KeyCode::Char('g') | KeyCode::Home => self.goto_header(),
                     KeyCode::Char('d') => self.delete()?,
-                    KeyCode::Char('a') => self.enter_create_mode(),
                     KeyCode::Char('u') => self.undo()?,
-                    KeyCode::Char('r') => self.redo()?,
                     KeyCode::Enter => self.navigate()?,
                     _ => {}
                 }
             }
         }
+    }
+
+    fn handle_mode_action(&mut self, action: ModeAction) -> Result<()> {
+        match action {
+            ModeAction::Select(index) => {
+                self.selected = index;
+            },
+            ModeAction::CreateEntry(operation) => {
+                self.history.push(operation);
+                self.history_index += 1;
+                self.entries = file_ops::read_dir_entries(&self.current_path)?;
+                self.selected = self.entries.len() - 1;
+            },
+            ModeAction::RenameEntry(operation) => {
+                self.history.push(operation);
+                self.history_index += 1;
+                self.entries = file_ops::read_dir_entries(&self.current_path)?;
+            },
+            ModeAction::Exit => {},
+        }
+        Ok(())
     }
 }

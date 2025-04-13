@@ -10,7 +10,8 @@ mod config;
 mod history;
 mod error;
 mod file_ops;
-mod search;
+mod modes;
+mod prompt;
 
 use explorer::FileExplorer;
 use error::Result;
