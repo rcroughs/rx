@@ -1,4 +1,4 @@
-use std::io::stdout;
+use std::io::{stdout, IsTerminal, Write};
 use clap::Parser;
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType};
@@ -30,8 +30,8 @@ fn main() -> Result<()> {
     let mut explorer = FileExplorer::new(config)?;
     if let Some(path) = explorer.run()? {
         if args.out {
-            execute!(stdout(), Clear(ClearType::All)).unwrap();
-            println!("{}\n", path.display());
+            println!("{}", path.display());
+            stdout().flush()?;
         }
     }
     Ok(())

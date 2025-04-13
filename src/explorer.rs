@@ -1,6 +1,11 @@
 use std::path::{Path, PathBuf};
-use std::env;
+use std::{env, io};
+use std::fs::File;
+use std::io::{stdout, BufWriter, IsTerminal, Write};
+use std::cell::RefCell;
 use crossterm::event::{self, Event, KeyCode};
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crate::config::Config;
 use crate::terminal;
 use crate::history::{Operation};
@@ -8,6 +13,21 @@ use crate::file_ops;
 use crate::error::Result;
 use crate::modes::{Mode, ModeAction};
 use crate::prompt::Prompt;
+
+// Add this wrapper struct that gives us a concrete Sized type
+struct WriterAdapter<'a> {
+    inner: &'a mut dyn Write,
+}
+
+impl<'a> Write for WriterAdapter<'a> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
 
 pub struct FileExplorer {
     current_path: PathBuf,
@@ -18,12 +38,24 @@ pub struct FileExplorer {
     delete_mode: Option<usize>,
     history: Vec<Operation>,
     history_index: usize,
+    terminal_writer: RefCell<Option<Box<dyn Write>>>,
+    is_tty_mode: bool,  // Add flag to track TTY mode
 }
 
 impl FileExplorer {
     pub fn new(config: Config) -> Result<Self> {
         let current_path = env::current_dir()?;
         let entries = file_ops::read_dir_entries(&current_path)?;
+        
+        // Check if we're in TTY mode
+        let is_tty_mode = !stdout().is_terminal();
+        
+        let writer: Box<dyn Write> = if is_tty_mode {
+            let tty = File::options().read(true).write(true).open("/dev/tty")?;
+            Box::new(BufWriter::new(tty))
+        } else {
+            Box::new(stdout())
+        };
         
         Ok(FileExplorer {
             current_path,
@@ -34,25 +66,28 @@ impl FileExplorer {
             delete_mode: None,
             history: vec![],
             history_index: 0,
+            terminal_writer: RefCell::new(Some(writer)),
+            is_tty_mode,  // Store the TTY mode flag
         })
     }
 
-    fn display(&self) {
-        terminal::clear_screen();
+    fn display<W: Write>(&self, writer: &mut W) {
+        terminal::clear_screen(writer);
 
         for (i, entry) in self.entries.iter().enumerate() {
-            self.display_entry(entry, i);
+            self.display_entry(writer, entry, i);
         }
 
         if self.prompt.is_active() {
             terminal::display_prompt(
+                writer,
                 self.prompt.get_prompt_prefix(),
                 self.prompt.get_query(),
                 terminal::size_of_terminal().0 - 1
             );
         }
 
-        terminal::flush();
+        terminal::flush(writer);
     }
     
     fn get_max_entry_width(&self) -> usize {
@@ -64,7 +99,7 @@ impl FileExplorer {
             .unwrap_or(0)
     }
     
-    fn display_entry(&self, entry: &Path, index: usize) {
+    fn display_entry<W: Write>(&self, writer: &mut W, entry: &Path, index: usize) {
         let display_name = if index == 0 {
             "../".to_string()  // Special case for parent directory
         } else if entry.is_dir() {
@@ -80,14 +115,45 @@ impl FileExplorer {
         let max_width = self.get_max_entry_width();
         let is_match = self.prompt.is_match(index);
         
-        terminal::display_entry(&display_name, created, index as u16, 
+        terminal::display_entry(writer, &display_name, created, index as u16, 
             index == self.selected, max_width, is_match, self.config.nerd_fonts);
             
         if let Some(delete_index) = self.delete_mode {
             if delete_index == index {
-                terminal::display_delete_warning(index);
+                terminal::display_delete_warning(writer, index);
             }
         }
+    }
+
+    fn with_writer<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&mut WriterAdapter) -> T,
+    {
+        let mut writer = self.terminal_writer.borrow_mut();
+        let writer_ref = writer.as_mut().expect("Writer should be available");
+        let mut adapter = WriterAdapter { inner: writer_ref.as_mut() };
+        f(&mut adapter)
+    }
+
+    fn update_display(&self) {
+        self.with_writer(|writer| {
+            terminal::clear_screen(writer);
+
+            for (i, entry) in self.entries.iter().enumerate() {
+                self.display_entry(writer, entry, i);
+            }
+
+            if self.prompt.is_active() {
+                terminal::display_prompt(
+                    writer,
+                    self.prompt.get_prompt_prefix(),
+                    self.prompt.get_query(),
+                    terminal::size_of_terminal().0 - 1
+                );
+            }
+
+            terminal::flush(writer);
+        });
     }
 
     fn navigate(&mut self) -> Result<()> {
@@ -98,10 +164,14 @@ impl FileExplorer {
                 self.current_path = env::current_dir()?;
                 self.entries = file_ops::read_dir_entries(&self.current_path)?;
                 self.selected = 1;
-            } else {
-                terminal::cleanup();
+            } else if !self.is_tty_mode {
+                // Only open files if not in TTY mode
+                self.with_writer(|writer| terminal::cleanup(writer));
                 file_ops::open_file_in_editor(selected_path)?;
-                terminal::init();
+                self.with_writer(|writer| terminal::init(writer));
+            } else {
+                // In TTY mode, show a message or simply do nothing
+                // We could display a message here if needed
             }
         }
         Ok(())
@@ -225,10 +295,26 @@ impl FileExplorer {
     }
 
     pub fn run(&mut self) -> Result<Option<PathBuf>> {
-        terminal::init();
+        enable_raw_mode()?;
+        
+        self.with_writer(|writer| {
+            execute!(writer, EnterAlternateScreen).unwrap();
+            terminal::init(writer);
+        });
+        
+        let result = self.run_loop()?;
+        
+        self.with_writer(|writer| terminal::cleanup(writer));
+        
+        disable_raw_mode()?;
+        self.with_writer(|writer| execute!(writer, LeaveAlternateScreen).unwrap());
+        
+        Ok(result)
+    }
 
+    fn run_loop(&mut self) -> Result<Option<PathBuf>> {
         loop {
-            self.display();
+            self.update_display();
 
             if let Event::Key(key_event) = event::read()? {
                 if key_event.code != KeyCode::Char('d') {
@@ -297,8 +383,8 @@ impl FileExplorer {
                         }
                     },
                     KeyCode::Char('q') => {
-                        terminal::cleanup();
-                        return Ok(None);
+                        self.with_writer(|writer| terminal::cleanup(writer));
+                        break Ok(Some(self.current_path.clone()));
                     },
                     KeyCode::Char('j') | KeyCode::Down => self.increment_selected(),
                     KeyCode::Char('k') | KeyCode::Up => self.decrement_selected(),

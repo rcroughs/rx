@@ -3,22 +3,22 @@ use crossterm::{
     terminal::{self, ClearType},
     style::{Stylize, Color},
 };
-use std::io::{stdout, Write};
+use std::io::Write;
 use std::time::SystemTime;
 use crate::icons;
 
-pub fn init() {
-    queue!(stdout(), cursor::Hide).unwrap();
+pub fn init<W: Write>(writer: &mut W) {
+    queue!(writer, cursor::Hide).unwrap();
     terminal::enable_raw_mode().unwrap();
 }
 
-pub fn cleanup() {
-    queue!(stdout(), cursor::Show).unwrap();
+pub fn cleanup<W: Write>(writer: &mut W) {
+    queue!(writer, cursor::Show).unwrap();
     terminal::disable_raw_mode().unwrap();
 }
 
-pub fn clear_screen() {
-    execute!(stdout(), terminal::Clear(ClearType::All)).unwrap();
+pub fn clear_screen<W: Write>(writer: &mut W) {
+    execute!(writer, terminal::Clear(ClearType::All)).unwrap();
 }
 
 fn print_time(created: SystemTime) -> String {
@@ -35,13 +35,22 @@ pub fn size_of_terminal() -> (u16, u16) {
     (width, height)
 }
 
-pub fn display_prompt(prefix: &str, query: &str, row: u16) {
-    queue!(stdout(), cursor::MoveTo(0, row), style::Print(prefix)).unwrap();
-    queue!(stdout(), cursor::MoveTo(prefix.len() as u16, row), style::Print(query)).unwrap();
-    queue!(stdout(), cursor::Show, cursor::EnableBlinking).unwrap();
+pub fn display_prompt<W: Write>(writer: &mut W, prefix: &str, query: &str, row: u16) {
+    queue!(writer, cursor::MoveTo(0, row), style::Print(prefix)).unwrap();
+    queue!(writer, cursor::MoveTo(prefix.len() as u16, row), style::Print(query)).unwrap();
+    queue!(writer, cursor::Show, cursor::EnableBlinking).unwrap();
 }
 
-pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, max_width: usize, is_match: bool, nerd_fonts: bool) {
+pub fn display_entry<W: Write>(
+    writer: &mut W,
+    name: &str,
+    created: SystemTime,
+    row: u16,
+    selected: bool,
+    max_width: usize,
+    is_match: bool,
+    nerd_fonts: bool
+) {
     let mut styled_name;
     let mut styled_created;
 
@@ -67,11 +76,11 @@ pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, 
     };
 
     if selected {
-        queue!(stdout(), cursor::MoveTo(0, row), style::Print(">")).unwrap();
+        queue!(writer, cursor::MoveTo(0, row), style::Print(">")).unwrap();
         styled_name = name.with(selected_fg).on(selected_bg);
         styled_created = print_time(created).with(selected_fg).on(selected_bg);
     } else {
-        queue!(stdout(), style::ResetColor).unwrap();
+        queue!(writer, style::ResetColor).unwrap();
         styled_name = name.with(normal_fg);
         styled_created = print_time(created).with(normal_fg);
     }
@@ -80,28 +89,28 @@ pub fn display_entry(name: &str, created: SystemTime, row: u16, selected: bool, 
         styled_name = styled_name.with(match_fg);
         styled_created = styled_created.with(match_fg);
     } else {
-        queue!(stdout(), cursor::Hide).unwrap();
+        queue!(writer, cursor::Hide).unwrap();
     }
 
     if nerd_fonts {
         let nerd_font_icon = icons::get_file_icon(name).with(normal_fg);
-        queue!(stdout(), cursor::MoveTo(1, row), style::PrintStyledContent(nerd_font_icon)).unwrap();
+        queue!(writer, cursor::MoveTo(1, row), style::PrintStyledContent(nerd_font_icon)).unwrap();
     }
 
-    queue!(stdout(), cursor::MoveTo(3, row), style::PrintStyledContent(styled_name)).unwrap();
-    queue!(stdout(), cursor::MoveTo((max_width + 7) as u16, row), style::PrintStyledContent(styled_created)).unwrap();
+    queue!(writer, cursor::MoveTo(3, row), style::PrintStyledContent(styled_name)).unwrap();
+    queue!(writer, cursor::MoveTo((max_width + 7) as u16, row), style::PrintStyledContent(styled_created)).unwrap();
 }
 
-pub fn flush() {
-    stdout().flush().unwrap();
+pub fn flush<W: Write>(writer: &mut W) {
+    writer.flush().unwrap();
 }
 
-pub fn display_delete_warning(row: usize) {
+pub fn display_delete_warning<W: Write>(writer: &mut W, row: usize) {
     let warning = "Press d again to delete";
     let styled_warning = warning.with(Color::Rgb{
         r: 243,
         g: 139,
         b: 168
     }).italic();
-    queue!(stdout(), cursor::MoveTo(50, row as u16), style::PrintStyledContent(styled_warning)).unwrap();
+    queue!(writer, cursor::MoveTo(50, row as u16), style::PrintStyledContent(styled_warning)).unwrap();
 }

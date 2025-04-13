@@ -1,9 +1,8 @@
 use crossterm::{cursor, event, queue, style};
-use std::io::{stdout};
+use std::io::{stdout, Write};
 use crossterm::event::{Event, KeyCode};
 use crate::config::Config;
 use crate::terminal;
-
 
 pub struct ConfigScreen {
     titles: Vec<String>,
@@ -26,18 +25,19 @@ impl ConfigScreen {
         }
     }
 
-    fn display(&self) {
-        terminal::clear_screen();
-        self.show_title();
-        self.show_subtitle();
-        self.show_buttons();
-        terminal::flush();
+    fn display<W: Write>(&self, writer: &mut W) {
+        terminal::clear_screen(writer);
+        self.show_title(writer);
+        self.show_subtitle(writer);
+        self.show_buttons(writer);
+        terminal::flush(writer);
     }
 
     pub fn run(&mut self) {
-        terminal::init();
+        let mut stdout = stdout();
+        terminal::init(&mut stdout);
         loop {
-            self.display();
+            self.display(&mut stdout);
             if let Event::Key(key_event) = event::read().unwrap() {
                 match key_event.code {
                     KeyCode::Esc => break,
@@ -64,28 +64,28 @@ impl ConfigScreen {
         }
     }
 
-    fn show_title(&self) {
+    fn show_title<W: Write>(&self, writer: &mut W) {
         let (width, height) = terminal::size_of_terminal();
         let title = self.titles.get(self.index).unwrap();
         let padding = (width as usize - title.len()) / 2;
         let middle = height / 2;
-        queue!(stdout(), cursor::MoveTo(padding as u16, middle - 2), style::Print(title)).unwrap();
+        queue!(writer, cursor::MoveTo(padding as u16, middle - 2), style::Print(title)).unwrap();
     }
 
-    fn show_subtitle(&self) {
+    fn show_subtitle<W: Write>(&self, writer: &mut W) {
         let (width, height) = terminal::size_of_terminal();
         let subtitle = self.subtitles.get(self.index).unwrap();
         let padding = (width as usize - subtitle.len()) / 2;
         let middle = height / 2;
-        queue!(stdout(), cursor::MoveTo(padding as u16, middle - 1), style::Print(subtitle)).unwrap();
+        queue!(writer, cursor::MoveTo(padding as u16, middle - 1), style::Print(subtitle)).unwrap();
     }
 
-    fn show_buttons(&self) {
-        self.show_button("YES", self.current_selection, 1);
-        self.show_button("NO", !self.current_selection, 2);
+    fn show_buttons<W: Write>(&self, writer: &mut W) {
+        self.show_button(writer, "YES", self.current_selection, 1);
+        self.show_button(writer, "NO", !self.current_selection, 2);
     }
 
-    fn show_button(&self, text: &str, selected: bool, offset: i16) {
+    fn show_button<W: Write>(&self, writer: &mut W, text: &str, selected: bool, offset: i16) {
         let (width, height) = terminal::size_of_terminal();
         let button = text;
         let button = if selected {
@@ -97,9 +97,9 @@ impl ConfigScreen {
         let padding = (width as usize - button_width) / 2;
         let middle = height / 2;
         if selected {
-            queue!(stdout(), cursor::MoveTo(padding as u16, (middle as i16 + offset) as u16), style::Print(button)).unwrap();
+            queue!(writer, cursor::MoveTo(padding as u16, (middle as i16 + offset) as u16), style::Print(button)).unwrap();
         } else {
-            queue!(stdout(), cursor::MoveTo(padding as u16, (middle as i16 + offset) as u16), style::Print(button)).unwrap();
+            queue!(writer, cursor::MoveTo(padding as u16, (middle as i16 + offset) as u16), style::Print(button)).unwrap();
         }
     }
 }
