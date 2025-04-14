@@ -5,7 +5,7 @@ use std::io::{stdout, BufWriter, IsTerminal, Write};
 use std::cell::RefCell;
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle};
 use crate::config::Config;
 use crate::terminal;
 use crate::history::{Operation};
@@ -164,6 +164,7 @@ impl FileExplorer {
                 self.current_path = env::current_dir()?;
                 self.entries = file_ops::read_dir_entries(&self.current_path)?;
                 self.selected = 1;
+                self.set_title();
             } else if !self.is_tty_mode {
                 // Only open files if not in TTY mode
                 self.with_writer(|writer| terminal::cleanup(writer));
@@ -294,6 +295,13 @@ impl FileExplorer {
         Ok(())
     }
 
+    fn set_title(&self) {
+        self.with_writer(|writer| {
+            let title = format!("rx - {}", self.current_path.display());
+            execute!(writer, SetTitle(title)).unwrap();
+        });
+    }
+
     pub fn run(&mut self) -> Result<Option<PathBuf>> {
         enable_raw_mode()?;
         
@@ -301,7 +309,7 @@ impl FileExplorer {
             execute!(writer, EnterAlternateScreen).unwrap();
             terminal::init(writer);
         });
-        
+        self.set_title();
         let result = self.run_loop()?;
         
         self.with_writer(|writer| terminal::cleanup(writer));
