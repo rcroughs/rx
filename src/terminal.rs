@@ -1,19 +1,15 @@
-use crossterm::{
-    cursor, execute, queue, style,
-    terminal::{self, ClearType},
-    style::{Stylize, Color},
-};
+use crossterm::{cursor, execute, queue, style, terminal::{self, ClearType}, style::{Stylize, Color}, event};
 use std::io::Write;
 use std::time::SystemTime;
 use crate::icons;
 
 pub fn init<W: Write>(writer: &mut W) {
-    queue!(writer, cursor::Hide).unwrap();
+    queue!(writer, cursor::Hide, event::EnableMouseCapture).unwrap();
     terminal::enable_raw_mode().unwrap();
 }
 
 pub fn cleanup<W: Write>(writer: &mut W) {
-    queue!(writer, cursor::Show).unwrap();
+    queue!(writer, cursor::Show, event::DisableMouseCapture).unwrap();
     terminal::disable_raw_mode().unwrap();
 }
 
@@ -113,4 +109,20 @@ pub fn display_delete_warning<W: Write>(writer: &mut W, row: usize) {
         b: 168
     }).italic();
     queue!(writer, cursor::MoveTo(50, row as u16), style::PrintStyledContent(styled_warning)).unwrap();
+}
+
+// Display a line at the right of the screen
+pub fn display_navbar<W: Write>(writer: &mut W, start_viewport: usize, end_viewport: usize, total_entries: usize) {
+    if end_viewport >= total_entries {
+        return;
+    }
+
+    let (width, height) = terminal::size().unwrap();
+
+    let start = ((start_viewport as f64 / total_entries as f64) * height as f64) as usize;
+    let end = ((end_viewport as f64 / total_entries as f64) * height as f64) as usize;
+
+    for i in start..end {
+        queue!(writer, cursor::MoveTo(width - 1, i as u16), style::Print("┃")).unwrap();
+    }
 }
