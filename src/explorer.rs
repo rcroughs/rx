@@ -41,7 +41,7 @@ impl FileExplorer {
     fn init_lua() -> Result<Lua> {
         let lua = Lua::new();
         let config_dir = dirs::config_dir().unwrap().join("rx").join("lua");
-        let config_lua = config_dir.join("config.lua");
+        let config_lua = config_dir.join("init.lua");
         
         // Setup Lua path
         let pkg: mlua::Table = lua.globals().get("package")

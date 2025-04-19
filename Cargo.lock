@@ -567,7 +567,6 @@ dependencies = [
  "crossterm",
  "dirs",
  "mlua",
- "parking_lot",
  "serde",
  "toml",
 ]
