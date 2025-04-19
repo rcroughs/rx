@@ -12,6 +12,8 @@ mod error;
 mod file_ops;
 mod modes;
 mod prompt;
+mod lua;
+mod theme;
 
 use explorer::FileExplorer;
 use error::Result;

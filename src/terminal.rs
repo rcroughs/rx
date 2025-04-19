@@ -1,7 +1,9 @@
 use crossterm::{cursor, execute, queue, style, terminal::{self, ClearType}, style::{Stylize, Color}, event};
 use std::io::Write;
 use std::time::SystemTime;
+use crossterm::style::StyledContent;
 use crate::icons;
+use crate::theme::Theme;
 
 pub fn init<W: Write>(writer: &mut W) {
     queue!(writer, cursor::Hide, event::EnableMouseCapture).unwrap();
@@ -39,62 +41,47 @@ pub fn display_prompt<W: Write>(writer: &mut W, prefix: &str, query: &str, row: 
 
 pub fn display_entry<W: Write>(
     writer: &mut W,
-    name: &str,
-    created: SystemTime,
+    display_modules: Vec<String>,
     row: u16,
     selected: bool,
-    max_width: usize,
+    max_width: Vec<usize>,
     is_match: bool,
-    nerd_fonts: bool
+    nerd_fonts: bool,
+    theme: &Theme,
 ) {
-    let mut styled_name;
-    let mut styled_created;
+    let mut styled_modules: Vec<StyledContent<String>> = Vec::new();
 
-    let selected_fg = Color::Rgb{
-        r: 242,
-        g: 205,
-        b: 205
-    };
-    let normal_fg = Color::Rgb{
-        r:166,
-        g:173,
-        b:200
-    };
-    let match_fg = Color::Rgb{
-        r:166,
-        g: 227,
-        b: 161
-    };
-    let selected_bg = Color::Rgb{
-        r: 69,
-        g: 71,
-        b:90
-    };
+    for module in display_modules {
+        styled_modules.push(module.with(theme.fg));
+    }
 
     if selected {
         queue!(writer, cursor::MoveTo(0, row), style::Print(">")).unwrap();
-        styled_name = name.with(selected_fg).on(selected_bg);
-        styled_created = print_time(created).with(selected_fg).on(selected_bg);
+        styled_modules = styled_modules.into_iter().map(|module| {
+            module.with(theme.selected_fg).on(theme.selected_bg)
+        }).collect();
     } else {
         queue!(writer, style::ResetColor).unwrap();
-        styled_name = name.with(normal_fg);
-        styled_created = print_time(created).with(normal_fg);
+        styled_modules = styled_modules.into_iter().map(|module| {
+            module.with(theme.fg)
+        }).collect();
     }
 
     if is_match {
-        styled_name = styled_name.with(match_fg);
-        styled_created = styled_created.with(match_fg);
+        styled_modules = styled_modules.into_iter().map(|module| {
+            module.with(theme.highlight)
+        }).collect();
     } else {
         queue!(writer, cursor::Hide).unwrap();
     }
 
-    if nerd_fonts {
-        let nerd_font_icon = icons::get_file_icon(name).with(normal_fg);
-        queue!(writer, cursor::MoveTo(1, row), style::PrintStyledContent(nerd_font_icon)).unwrap();
-    }
 
-    queue!(writer, cursor::MoveTo(3, row), style::PrintStyledContent(styled_name)).unwrap();
-    queue!(writer, cursor::MoveTo((max_width + 7) as u16, row), style::PrintStyledContent(styled_created)).unwrap();
+    let mut position = 2;
+    for (i, module) in styled_modules.iter().enumerate() {
+        let module_width = max_width[i];
+        queue!(writer, cursor::MoveTo((position) as u16, row), style::PrintStyledContent(module.clone())).unwrap();
+        position += module_width as u16 + 1;
+    }
 }
 
 pub fn flush<W: Write>(writer: &mut W) {

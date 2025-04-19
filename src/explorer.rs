@@ -4,15 +4,21 @@ use std::fs::File;
 use std::io::{stdout, BufWriter, IsTerminal, Write};
 use std::cell::RefCell;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
-use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle};
+use crossterm::{execute, queue, style, cursor};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle, Clear, ClearType};
+use crossterm::cursor::{Hide, Show, MoveTo};
+use crossterm::style::Color;
+use mlua::Lua;
+use mlua::prelude::LuaTable;
 use crate::config::Config;
 use crate::terminal;
 use crate::history::{Operation};
 use crate::file_ops;
-use crate::error::Result;
+use crate::error::{ExplorerError, Result};
+use crate::lua::{create_rx_module, DisplayModuleFn, Entry};
 use crate::modes::{Mode, ModeAction};
 use crate::prompt::Prompt;
+use crate::theme::Theme;
 
 // Add this wrapper struct that gives us a concrete Sized type
 struct WriterAdapter<'a> {
@@ -42,10 +48,64 @@ pub struct FileExplorer {
     is_tty_mode: bool,
     viewport_start: usize,
     viewport_size: usize,
+    lua: Lua,
+    display_modules: Vec<DisplayModuleFn>,
+    theme: Theme,
+    dirty: bool,
+    modules_cache: Vec<Vec<String>>,
+    max_widths: Vec<usize>,
 }
 
 impl FileExplorer {
     pub fn new(config: Config) -> Result<Self> {
+        let lua = Lua::new();
+        let config_dir = dirs::config_dir().unwrap().join("rx").join("lua");
+        let config_lua = config_dir.join("config.lua");
+        let pkg: LuaTable = lua.globals().get("package").map_err(|e| ExplorerError::LuaError(e))?;
+        let old_path: String = pkg.get("path").map_err(|e| ExplorerError::LuaError(e))?;
+        let new_path = format!(
+            "{}/?.lua;{}/?/init.lua;{}",
+            config_dir.display(), config_dir.display(), old_path
+        );
+        pkg.set("path", new_path)
+            .map_err(|e| ExplorerError::LuaError(e))?;;
+        let rx_module = create_rx_module(&lua).map_err(|e| ExplorerError::LuaError(e))?;
+        lua.globals().set("rx", rx_module).map_err(|e| ExplorerError::LuaError(e))?;
+
+        lua.load(&std::fs::read_to_string(config_lua)?).exec().map_err(|e| ExplorerError::LuaError(e))?;
+        // Get the modules table
+        let rx_table: mlua::Table = lua.globals().get("rx")
+            .map_err(|e| ExplorerError::LuaError(e))?;
+
+        let theme = if let Ok(tbl) = rx_table.get::<_>("theme") {
+            Theme::from_lua(&tbl).map_err(ExplorerError::LuaError)?
+        } else {
+            Theme {
+                fg: Color::White,
+                bg: Color::Black,
+                selected_fg: Color::Yellow,
+                selected_bg: Color::DarkGrey,
+                highlight: Color::Green,
+            }
+        };
+        let modules_table: mlua::Table = rx_table.get("modules")
+            .map_err(|e| ExplorerError::LuaError(e))?;
+        let mut display_modules = Vec::new();
+
+        // Convert each function in the table to a DisplayModuleFn
+        for pair in modules_table.pairs::<mlua::Value, mlua::Function>() {
+            let (_, func) = pair.map_err(|e| ExplorerError::LuaError(e))?;
+            // clone the Lua context for the closure
+            let lua_clone = lua.clone();
+            let display_fn: DisplayModuleFn = Box::new(move |entry: &Entry| {
+                // package the Rust Entry as Lua userdata
+                let ud = lua_clone.create_userdata(entry.clone()).unwrap();
+                // call the Lua function with the userdata
+                func.call::<_>(ud).unwrap_or_default()
+            });
+            display_modules.push(display_fn);
+        }
+
         let current_path = env::current_dir()?;
         let entries = file_ops::read_dir_entries(&current_path)?;
         
@@ -59,7 +119,7 @@ impl FileExplorer {
             Box::new(stdout())
         };
         
-        Ok(FileExplorer {
+        let mut me = FileExplorer {
             current_path,
             entries,
             selected: 1,
@@ -72,7 +132,33 @@ impl FileExplorer {
             is_tty_mode,
             viewport_start: 0,
             viewport_size: terminal::size_of_terminal().1 as usize,
-        })
+            lua,
+            display_modules,
+            theme,
+            dirty: true,
+            modules_cache: Vec::new(),
+            max_widths: Vec::new(),
+        };
+        me.recompute_display_data();
+        Ok(me)
+    }
+
+    fn recompute_display_data(&mut self) {
+        self.modules_cache.clear();
+        for (idx, entry) in self.entries.iter().enumerate() {
+            let info = self.create_entry(entry, self.get_display_name(entry, idx));
+            let parts = self.display_modules
+                .iter()
+                .map(|m| m(&info))
+                .collect();
+            self.modules_cache.push(parts);
+        }
+        self.max_widths = vec![0; self.display_modules.len()];
+        for parts in self.modules_cache.iter().skip(1) {
+            for (i, s) in parts.iter().enumerate() {
+                self.max_widths[i] = self.max_widths[i].max(s.len());
+            }
+        }
     }
 
     fn update_viewport(&mut self) {
@@ -93,6 +179,7 @@ impl FileExplorer {
                 self.selected = self.viewport_start + self.viewport_size - 1;
             }
             self.update_viewport();
+            self.dirty = true;
         }
     }
 
@@ -103,73 +190,74 @@ impl FileExplorer {
                 self.selected = self.viewport_start;
             }
             self.update_viewport();
+            self.dirty = true;
         }
     }
 
-    fn get_max_entry_width(&self) -> usize {
-        self.entries
-            .iter()
-            .skip(1)
-            .map(|entry| entry.file_name().unwrap_or_default().to_string_lossy().len())
-            .max()
-            .unwrap_or(0)
+    fn create_entry(&self, entry: &PathBuf, display_name: String) -> Entry {
+        Entry {
+            path: entry.to_path_buf(),
+            name: display_name,
+            is_dir: entry.is_dir(),
+            created: std::fs::metadata(entry)
+                .and_then(|meta| meta.created())
+                .unwrap_or_else(|_| std::time::SystemTime::now()),
+        }
     }
-    
-    fn display_entry<W: Write>(&self, writer: &mut W, entry: &Path, index: usize, display_row: usize) {
-        let display_name = if index == 0 {
-            "../".to_string()  // Special case for parent directory
+
+    fn get_display_name(&self, entry: &PathBuf, index: usize) -> String {
+        if index == 0 {
+            "../".to_string()
         } else if entry.is_dir() {
             format!("{}/", entry.file_name().unwrap_or_default().to_string_lossy())
         } else {
             entry.file_name().unwrap_or_default().to_string_lossy().to_string()
-        };
+        }
+    }
 
-        let created = std::fs::metadata(entry)
-            .and_then(|meta| meta.created())
-            .unwrap_or_else(|_| std::time::SystemTime::now());
-
-        let max_width = self.get_max_entry_width();
-        let is_match = self.prompt.is_match(index);
-        
+    fn draw_row<W: Write>(
+        &self,
+        writer: &mut W,
+        idx: usize,
+        row: u16,
+        modules: &[String],
+    ) {
+        let selected = idx == self.selected;
+        let is_match = self.prompt.is_match(idx);
         terminal::display_entry(
             writer,
-            &display_name,
-            created,
-            display_row as u16,
-            index == self.selected,
-            max_width, is_match,
-            self.config.nerd_fonts
+            modules.to_vec(),
+            row,
+            selected,
+            self.max_widths.clone(),
+            is_match,
+            self.config.nerd_fonts,
+            &self.theme,
         );
-
-
-        if let Some(delete_index) = self.delete_mode {
-            if delete_index == index {
-                terminal::display_delete_warning(writer, index);
+        if let Some(d) = self.delete_mode {
+            if d == idx {
+                terminal::display_delete_warning(writer, idx);
             }
         }
     }
 
-    fn with_writer<F, T>(&self, f: F) -> T
-    where
-        F: FnOnce(&mut WriterAdapter) -> T,
-    {
-        let mut writer = self.terminal_writer.borrow_mut();
-        let writer_ref = writer.as_mut().expect("Writer should be available");
-        let mut adapter = WriterAdapter { inner: writer_ref.as_mut() };
-        f(&mut adapter)
-    }
-
-    fn update_display(&self) {
+    fn update_display(&mut self) {
+        if !self.dirty {
+            return;
+        }
         self.with_writer(|writer| {
-            terminal::clear_screen(writer);
+            queue!(
+                writer,
+                Hide,
+                Clear(ClearType::All),
+                MoveTo(0, 0),
+            ).unwrap();
 
             let viewport_end = (self.viewport_start + self.viewport_size).min(self.entries.len());
-
             for (display_row, i) in (self.viewport_start..viewport_end).enumerate() {
-                let entry = &self.entries[i];
-                self.display_entry(writer, entry, i, display_row);
+                let modules = &self.modules_cache[i];
+                self.draw_row(writer, i, display_row as u16, modules);
             }
-
             if self.prompt.is_active() {
                 terminal::display_prompt(
                     writer,
@@ -178,7 +266,6 @@ impl FileExplorer {
                     terminal::size_of_terminal().0 - 1
                 );
             }
-
             terminal::display_navbar(
                 writer,
                 self.viewport_start,
@@ -186,8 +273,10 @@ impl FileExplorer {
                 self.entries.len()
             );
 
-            terminal::flush(writer);
+            queue!(writer, Show).unwrap();
+            writer.flush().unwrap();
         });
+        self.dirty = false;
     }
 
     fn navigate(&mut self) -> Result<()> {
@@ -201,23 +290,22 @@ impl FileExplorer {
                 self.set_title();
                 self.viewport_start = 0;
                 self.update_viewport();
+                self.recompute_display_data();
+                self.dirty = true;
             } else if !self.is_tty_mode {
-                // Only open files if not in TTY mode
                 self.with_writer(|writer| terminal::cleanup(writer));
                 file_ops::open_file_in_editor(selected_path)?;
                 self.with_writer(|writer| terminal::init(writer));
-            } else {
-                // In TTY mode, show a message or simply do nothing
-                // We could display a message here if needed
             }
         }
         Ok(())
     }
-    
+
     fn increment_selected(&mut self) {
         if self.selected < self.entries.len() - 1 {
             self.selected += 1;
             self.update_viewport();
+            self.dirty = true;
         }
     }
 
@@ -225,6 +313,7 @@ impl FileExplorer {
         if self.selected > 0 {
             self.selected -= 1;
             self.update_viewport();
+            self.dirty = true;
         }
     }
 
@@ -233,6 +322,7 @@ impl FileExplorer {
             self.selected = 0;
             self.viewport_start = 0;
             self.update_viewport();
+            self.dirty = true;
         }
     }
 
@@ -240,6 +330,7 @@ impl FileExplorer {
         if self.selected < self.entries.len() - 1 {
             self.selected = self.entries.len() - 1;
             self.update_viewport();
+            self.dirty = true;
         }
     }
 
@@ -249,6 +340,7 @@ impl FileExplorer {
             
             if self.delete_mode.is_none() {
                 self.delete_mode = Some(self.selected);
+                self.dirty = true;
                 return Ok(());
             } 
             
@@ -264,6 +356,8 @@ impl FileExplorer {
             self.history_index += 1;
             self.entries.remove(self.selected);
             self.delete_mode = None;
+            self.recompute_display_data();
+            self.dirty = true;
         }
         Ok(())
     }
@@ -299,6 +393,8 @@ impl FileExplorer {
                     }
                 }
             }
+            self.recompute_display_data();
+            self.dirty = true;
         }
         Ok(())
     }
@@ -332,6 +428,8 @@ impl FileExplorer {
             if self.selected >= self.entries.len() {
                 self.selected = self.selected.min(self.entries.len().saturating_sub(1));
             }
+            self.recompute_display_data();
+            self.dirty = true;
         }
         Ok(())
     }
@@ -351,6 +449,7 @@ impl FileExplorer {
             terminal::init(writer);
         });
         self.set_title();
+        self.update_display();
         let result = self.run_loop()?;
         
         self.with_writer(|writer| terminal::cleanup(writer));
@@ -372,11 +471,11 @@ impl FileExplorer {
                     }
                 },
                 Event::Mouse(mouse_event) => {
-                    self.handle_mouse_event(mouse_event);
-                }
+                    self.handle_mouse_event(mouse_event)?;
+                },
                 Event::Resize(_, _) => {
                     self.update_viewport();
-                    self.update_display();
+                    self.dirty = true;
                 },
                 _ => {},
             }
@@ -392,6 +491,7 @@ impl FileExplorer {
             match key_event.code {
                 KeyCode::Esc => {
                     self.prompt.set_mode(Mode::Normal);
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Enter => {
@@ -404,6 +504,7 @@ impl FileExplorer {
                     )? {
                         self.handle_mode_action(action)?;
                     }
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Char(c) => {
@@ -416,6 +517,7 @@ impl FileExplorer {
                     )? {
                         self.handle_mode_action(action)?;
                     }
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Backspace => {
@@ -428,6 +530,7 @@ impl FileExplorer {
                     )? {
                         self.handle_mode_action(action)?;
                     }
+                    self.dirty = true;
                     Ok(None)
                 },
                 _ => Ok(None)
@@ -436,20 +539,24 @@ impl FileExplorer {
             match key_event.code {
                 KeyCode::Char('/') => {
                     self.prompt.set_mode(Mode::Search);
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Char('n') if !self.prompt.is_active() => {
                     if let Some(index) = self.prompt.next_match() {
                         self.selected = index;
                     }
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Char('a') => {
                     self.prompt.set_mode(Mode::Create);
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Char('r') if key_event.modifiers == event::KeyModifiers::CONTROL => {
                     self.redo()?;
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Char('r') => {
@@ -460,6 +567,7 @@ impl FileExplorer {
                             .to_string_lossy();
                         self.prompt.set_mode_with_text(Mode::Rename, &name);
                     }
+                    self.dirty = true;
                     Ok(None)
                 },
                 KeyCode::Char('q') => {
@@ -500,6 +608,8 @@ impl FileExplorer {
     }
 
     fn handle_mouse_event(&mut self, event: event::MouseEvent) -> Result<()> {
+        let old_sel = self.selected;
+
         match event.kind {
             event::MouseEventKind::ScrollDown => {
                 self.scroll_down();
@@ -509,21 +619,23 @@ impl FileExplorer {
             }
             event::MouseEventKind::Down(event::MouseButton::Left) => {
                 let row = event.row as usize;
-                let adjusted_row = row + self.viewport_start;
-
-                if adjusted_row < self.entries.len() {
-                    if self.selected == adjusted_row {
+                let idx = row + self.viewport_start;
+                if idx < self.entries.len() {
+                    if self.selected == idx {
                         self.navigate()?;
                     } else {
-                        self.selected = adjusted_row;
+                        self.selected = idx;
                         self.update_viewport();
                     }
                 }
             }
             _ => {}
         }
+
+        self.dirty = true;
         Ok(())
     }
+
     fn handle_mode_action(&mut self, action: ModeAction) -> Result<()> {
         match action {
             ModeAction::Select(index) => {
@@ -542,7 +654,20 @@ impl FileExplorer {
             },
             ModeAction::Exit => {},
         }
+        self.recompute_display_data();
+        self.dirty = true;
         self.update_viewport();
         Ok(())
+    }
+
+    // re-add writer helper
+    fn with_writer<F, T>(&self, f: F) -> T
+    where
+        F: FnOnce(&mut WriterAdapter) -> T,
+    {
+        let mut writer_opt = self.terminal_writer.borrow_mut();
+        let writer = writer_opt.as_mut().expect("Writer should be available");
+        let mut adapter = WriterAdapter { inner: writer.as_mut() };
+        f(&mut adapter)
     }
 }
