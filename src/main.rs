@@ -14,6 +14,9 @@ mod modes;
 mod prompt;
 mod lua;
 mod theme;
+mod ui;
+mod input;
+mod state;
 
 use explorer::FileExplorer;
 use error::Result;
