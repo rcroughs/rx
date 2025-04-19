@@ -19,15 +19,6 @@ pub fn clear_screen<W: Write>(writer: &mut W) {
     execute!(writer, terminal::Clear(ClearType::All)).unwrap();
 }
 
-fn print_time(created: SystemTime) -> String {
-    let datetime = created
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let time = chrono::DateTime::from_timestamp(datetime as i64, 0).unwrap();
-    time.format("%a %b %e %H:%M:%S %Y").to_string()
-}
-
 pub fn size_of_terminal() -> (u16, u16) {
     let (width, height) = terminal::size().unwrap();
     (width, height)
