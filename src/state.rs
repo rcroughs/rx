@@ -55,7 +55,8 @@ impl AppState {
         self.max_widths = vec![0; self.display_modules.len()];
         for parts in self.modules_cache.iter().skip(1) {
             for (i, s) in parts.iter().enumerate() {
-                self.max_widths[i] = self.max_widths[i].max(s.len());
+                use unicode_width::UnicodeWidthStr;
+                self.max_widths[i] = self.max_widths[i].max(s.width());
             }
         }
     }

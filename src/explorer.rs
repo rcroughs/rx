@@ -42,16 +42,40 @@ impl FileExplorer {
         let lua = Lua::new();
         let config_dir = dirs::config_dir().unwrap().join("rx").join("lua");
         let config_lua = config_dir.join("init.lua");
-        
+
         // Setup Lua path
         let pkg: mlua::Table = lua.globals().get("package")
             .map_err(ExplorerError::LuaError)?;
         let old_path: String = pkg.get("path")
             .map_err(ExplorerError::LuaError)?;
-        let new_path = format!(
-            "{}/?.lua;{}/?/init.lua;{}",
-            config_dir.display(), config_dir.display(), old_path
-        );
+
+        // Build a list of paths:
+        // 1) each plugin dir ("git/?.lua", "git/?/init.lua", ...)
+        // 2) the top‐level ("?.lua", "?/init.lua")
+        // 3) the original Lua path
+        let mut paths = Vec::new();
+
+        // 1) scan each subfolder under config_dir
+        for entry in std::fs::read_dir(&config_dir)? {
+            let entry = entry?;
+            let p = entry.path();
+            if p.is_dir() {
+                let d = p.display();
+                paths.push(format!("{}/?.lua", d));
+                paths.push(format!("{}/?/init.lua", d));
+            }
+        }
+
+        // 2) the shared folder itself
+        paths.push(format!("{}/?.lua", config_dir.display()));
+        paths.push(format!("{}/?/init.lua", config_dir.display()));
+
+        // 3) fallback to whatever was there before
+        paths.push(old_path);
+
+        // join them all
+        let new_path = paths.join(";");
+
         pkg.set("path", new_path)
             .map_err(ExplorerError::LuaError)?;
 
