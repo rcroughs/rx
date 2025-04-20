@@ -1,4 +1,5 @@
 <div align="center">
+<img src="https://raw.githubusercontent.com/rcroughs/rx/master/assets/screenshot.png" alt="rx logo" width="200"/>
 <h1>rx</h1>
 <p>A highly flexible file explorer on terminal</p>
 </div>
@@ -12,15 +13,11 @@
 
 ## Installation
 
-For the moment, only compiling from source is supported. You can do this by running the following commands:
+You can install `rx` using `cargo`:
 
 ```bash
-git clone https://github.com/rcroughs/rx.git
-cd rx
-cargo build --release
+cargo install rx-explorer
 ```
-
-The compiled binary will be located in `target/release/rx`. You can move it to a directory in your PATH for easier access.
 
 ## Usage
 You can pass the following arguments to the binary:
