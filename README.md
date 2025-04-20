@@ -4,6 +4,11 @@
 <p>A highly flexible file explorer on terminal</p>
 </div>
 
+![Crates.io Version](https://img.shields.io/crates/v/rx-explorer)
+![Crates.io License](https://img.shields.io/crates/l/rx-explorer)
+![Crates.io Size](https://img.shields.io/crates/size/rx-explorer)
+
+
 ## Features
 
 - **File Explorer**: Navigate through your file system with ease.
