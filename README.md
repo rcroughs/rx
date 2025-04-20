@@ -1,5 +1,5 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/rcroughs/rx/master/assets/screenshot.png" alt="rx logo" width="200"/>
+<img src="https://raw.githubusercontent.com/rcroughs/rx/master/assets/screenshot.png" alt="rx preview" width="500"/>
 <h1>rx</h1>
 <p>A highly flexible file explorer on terminal</p>
 </div>
