@@ -3,7 +3,8 @@ pub fn get_file_icon(file_name: &str) -> &str {
     let extension = file_name
         .split('.')
         .last()
-        .unwrap_or("");
+        .unwrap_or("")
+        .trim_end_matches('/');
     match extension.to_lowercase().as_str() {
         // Programming
         "rs" => "󱘗", // Rust
@@ -79,6 +80,7 @@ pub fn get_file_icon(file_name: &str) -> &str {
 
         // Git
         "git" => "", // Git
+        "github" => "",
         "gitignore" => "", // Git Ignore
 
         _ => if file_name.ends_with("/") {"󰉋"} else {"󰈙"},
