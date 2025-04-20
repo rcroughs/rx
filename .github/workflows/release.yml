@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Release - ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - name: Linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: rx
+            name-suffix: linux-amd64
+          - name: macOS
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bin: rx
+            name-suffix: darwin-amd64
+          - name: Windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: rx.exe
+            name-suffix: windows-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare assets
+        shell: bash
+        run: |
+          cd target/${{ matrix.platform.target }}/release
+          tar -czf ../../../rx-${{ github.ref_name }}-${{ matrix.platform.name-suffix }}.tar.gz ${{ matrix.platform.bin }}
+
+      - name: Upload artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: rx-${{ github.ref_name }}-${{ matrix.platform.name-suffix }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
