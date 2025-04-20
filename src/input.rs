@@ -149,10 +149,14 @@ impl InputHandler {
                 Self::undo(state)?;
                 Ok(None)
             },
-            KeyCode::Enter => {
+            KeyCode::Enter | KeyCode::Right => {
                 Self::navigate(state, renderer)?;
                 Ok(None)
             },
+            KeyCode::Left | KeyCode::Char('b') | KeyCode::Backspace => {
+                Self::back(state);
+                Ok(None)
+            }
             _ => Ok(None)
         }
     }
@@ -329,6 +333,17 @@ impl InputHandler {
     fn goto_footer(state: &mut AppState) {
         if state.selected < state.entries.len() - 1 {
             state.selected = state.entries.len() - 1;
+        }
+    }
+
+    fn back(state: &mut AppState) {
+        let parent = state.current_path.parent();
+        if let Some(parent) = parent {
+            std::env::set_current_dir(parent).unwrap();
+            state.current_path = std::env::current_dir().unwrap();
+            state.entries = file_ops::read_dir_entries(&state.current_path).unwrap();
+            state.selected = 1;
+            state.recompute_display_data();
         }
     }
 }
