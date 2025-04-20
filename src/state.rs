@@ -69,6 +69,7 @@ impl AppState {
             created: std::fs::metadata(entry)
                 .and_then(|meta| meta.created())
                 .unwrap_or_else(|_| std::time::SystemTime::now()),
+            size: self.get_size(entry),
         }
     }
 
@@ -79,6 +80,16 @@ impl AppState {
             format!("{}/", entry.file_name().unwrap_or_default().to_string_lossy())
         } else {
             entry.file_name().unwrap_or_default().to_string_lossy().to_string()
+        }
+    }
+    
+    fn get_size(&self, entry: &PathBuf) -> u64 {
+        if !entry.is_dir() {
+            std::fs::metadata(entry)
+                .map(|meta| meta.len())
+                .unwrap_or(0)
+        } else {
+            0
         }
     }
 }

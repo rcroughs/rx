@@ -46,7 +46,11 @@ pub fn display_entry<W: Write>(
     if selected {
         queue!(writer, cursor::MoveTo(0, row), style::Print(">")).unwrap();
         styled_modules = styled_modules.into_iter().map(|module| {
-            module.with(theme.selected_fg).on(theme.selected_bg)
+            if !module.content().chars().all(|c| c == ' ') {
+                module.with(theme.selected_fg).on(theme.selected_bg)
+            } else {
+                module
+            }
         }).collect();
     } else {
         queue!(writer, style::ResetColor).unwrap();

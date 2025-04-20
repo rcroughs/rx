@@ -9,6 +9,7 @@ pub struct Entry {
     pub name: String,
     pub is_dir: bool,
     pub created: SystemTime,
+    pub size: u64,
 }
 
 pub type DisplayModuleFn = Box<dyn Fn(&Entry) -> String + 'static>;
@@ -30,6 +31,44 @@ pub fn get_creation_date(entry: &Entry) -> String {
     time.format("%a %b %e %H:%M:%S %Y").to_string()
 }
 
+pub fn get_size(entry: &Entry) -> String {
+    if entry.is_dir {
+        return "".to_string();
+    }
+    let size = entry.size;
+    if size < 1024 {
+        format!("{:>3}  B", size)
+    } else if size < 1024 * 1024 {
+        format!("{:>3.2} KB", (size as f64 / 1024.0) as u64)
+    } else if size < 1024 * 1024 * 1024 {
+        format!("{:>3.2} MB", (size as f64 / (1024.0 * 1024.0)) as u64)
+    } else if size < 1024 * 1024 * 1024 * 1024 {
+        format!("{:>3.2} GB", (size as f64 / (1024.0 * 1024.0 * 1024.0)) as u64)
+    } else {
+        format!("{:>3.2} TB", (size as f64 / (1024.0 * 1024.0 * 1024.0 * 1024.0)) as u64)
+    }
+}
+
+fn get_spacer(size: usize) -> String {
+    let mut s = String::new();
+    for _ in 0..size {
+        s.push(' ');
+    }
+    s
+}
+
+pub fn get_small_spacer(entry: &Entry) -> String {
+    get_spacer(2)
+}
+
+pub fn get_medium_spacer(entry: &Entry) -> String {
+    get_spacer(4)
+}
+
+pub fn get_large_spacer(entry: &Entry) -> String {
+    get_spacer(8)
+}
+
 pub fn create_rx_module<'lua>(lua: &'lua Lua) -> LuaResult<LuaTable> {
     let rx_table = lua.create_table()?;
 
@@ -48,6 +87,26 @@ pub fn create_rx_module<'lua>(lua: &'lua Lua) -> LuaResult<LuaTable> {
     rx_table.set("CreationDate", lua.create_function(|_, entry: LuaAnyUserData| {
         let entry = entry.borrow::<Entry>()?;
         Ok(get_creation_date(&entry))
+    })?)?;
+
+    rx_table.set("Size", lua.create_function(|_, entry: LuaAnyUserData| {
+        let entry = entry.borrow::<Entry>()?;
+        Ok(get_size(&entry))
+    })?)?;
+
+    rx_table.set("SmallSpacer", lua.create_function(|_, entry: LuaAnyUserData| {
+        let entry = entry.borrow::<Entry>()?;
+        Ok(get_small_spacer(&entry))
+    })?)?;
+
+    rx_table.set("MediumSpacer", lua.create_function(|_, entry: LuaAnyUserData| {
+        let entry = entry.borrow::<Entry>()?;
+        Ok(get_medium_spacer(&entry))
+    })?)?;
+
+    rx_table.set("LargeSpacer", lua.create_function(|_, entry: LuaAnyUserData| {
+        let entry = entry.borrow::<Entry>()?;
+        Ok(get_large_spacer(&entry))
     })?)?;
 
     rx_table.set("setDisplayModule", lua.create_function({
@@ -82,7 +141,10 @@ pub fn default_display_modules(use_nerd_fonts: bool) -> Vec<DisplayModuleFn> {
         display_modules.push(Box::new(get_icon));
     }
     display_modules.push(Box::new(get_name));
+    display_modules.push(Box::new(get_small_spacer));
     display_modules.push(Box::new(get_creation_date));
+    display_modules.push(Box::new(get_size));
+    display_modules.push(Box::new(get_small_spacer));
     display_modules
 }
 
@@ -91,6 +153,14 @@ impl LuaUserData for Entry {
         fields.add_field_method_get("path", |_, this| Ok(this.path.clone()));
         fields.add_field_method_get("name", |_, this| Ok(this.name.clone()));
         fields.add_field_method_get("is_dir", |_, this| Ok(this.is_dir));
+        fields.add_field_method_get("created", |_, this| {
+            let datetime = this.created
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            Ok(datetime)
+        });
+        fields.add_field_method_get("size", |_, this| Ok(this.size));
     }
 }
 
