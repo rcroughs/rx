@@ -1,7 +1,5 @@
-use std::io::{stdout, IsTerminal, Write};
+use std::io::{stdout, Write};
 use clap::Parser;
-use crossterm::execute;
-use crossterm::terminal::{Clear, ClearType};
 
 mod explorer;
 mod terminal;

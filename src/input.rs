@@ -230,6 +230,8 @@ impl InputHandler {
                 state.selected = 1;
                 state.recompute_display_data();
                 renderer.reset_viewport();
+            } else {
+                file_ops::open_file_in_editor(selected_path)?;
             }
         }
         Ok(())

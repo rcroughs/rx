@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 use mlua::prelude::*;
-use mlua::Table;
 use crate::icons;
 
 #[derive(Clone)]

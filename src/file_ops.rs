@@ -52,7 +52,7 @@ pub fn create_directory(path: &Path) -> Result<()> {
 }
 
 pub fn open_file_in_editor(path: &Path) -> Result<()> {
-    let status = Command::new("nvim")
+    let status = Command::new("xdg-open")
         .arg(path)
         .status()
         .map_err(|e| ExplorerError::OperationFailed(format!("Failed to open editor: {}", e)))?;

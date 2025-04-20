@@ -1,5 +1,5 @@
 use std::io::Write;
-use crossterm::{cursor, queue, style};
+use crossterm::{cursor, queue};
 use crate::state::AppState;
 use crate::theme::Theme;
 use crate::terminal;
@@ -117,7 +117,6 @@ impl Renderer {
             selected,
             state.max_widths.clone(),
             is_match,
-            state.config.nerd_fonts,
             &self.theme,
         );
 

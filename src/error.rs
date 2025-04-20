@@ -1,7 +1,5 @@
 use std::fmt;
 use std::io;
-use std::path::PathBuf;
-use mlua::{Error, Lua};
 
 #[derive(Debug)]
 pub enum ExplorerError {
@@ -10,7 +8,7 @@ pub enum ExplorerError {
     OperationFailed(String),
     LuaError(mlua::Error),
     Other(String),
-    NoLuaScript(Lua),
+    NoLuaScript(),
 }
 
 impl fmt::Display for ExplorerError {
@@ -21,7 +19,7 @@ impl fmt::Display for ExplorerError {
             ExplorerError::OperationFailed(msg)    => write!(f, "Operation failed: {}", msg),
             ExplorerError::LuaError(err)          => write!(f, "Lua error: {}", err),
             ExplorerError::Other(msg)             => write!(f, "{}", msg),
-            ExplorerError::NoLuaScript(lua)      => write!(f, "No Lua script found"),
+            ExplorerError::NoLuaScript()      => write!(f, "No Lua script found"),
         }
     }
 }

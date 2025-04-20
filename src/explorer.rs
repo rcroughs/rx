@@ -35,7 +35,7 @@ impl FileExplorer {
             }
             Err(e) => {
                 match e {
-                    ExplorerError::NoLuaScript(_) => {
+                    ExplorerError::NoLuaScript() => {
                         display_modules = default_display_modules(config.nerd_fonts);
                         Ok(Lua::new())
                     }
@@ -61,7 +61,7 @@ impl FileExplorer {
         let lua = Lua::new();
         let config_dir = dirs::config_dir().unwrap().join("rx").join("lua");
         if !config_dir.exists() {
-            return Err(ExplorerError::NoLuaScript(lua));
+            return Err(ExplorerError::NoLuaScript());
         }
         let config_lua = config_dir.join("init.lua");
 

@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::file_ops;
 use crate::prompt::Prompt;
-use crate::history::{Operation, DirBackup};
+use crate::history::{Operation};
 use crate::lua::{Entry, DisplayModuleFn};
 
 pub struct AppState {

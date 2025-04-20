@@ -1,8 +1,6 @@
 use crossterm::{cursor, execute, queue, style, terminal::{self, ClearType}, style::{Stylize, Color}, event};
 use std::io::Write;
-use std::time::SystemTime;
 use crossterm::style::StyledContent;
-use crate::icons;
 use crate::theme::Theme;
 
 pub fn init<W: Write>(writer: &mut W) {
@@ -37,7 +35,6 @@ pub fn display_entry<W: Write>(
     selected: bool,
     max_width: Vec<usize>,
     is_match: bool,
-    nerd_fonts: bool,
     theme: &Theme,
 ) {
     let mut styled_modules: Vec<StyledContent<String>> = Vec::new();
