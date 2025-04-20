@@ -13,7 +13,7 @@ use crate::input::InputHandler;
 use crate::state::AppState;
 use crate::ui::Renderer;
 use crate::theme::Theme;
-use crate::lua::{create_rx_module, DisplayModuleFn, Entry};
+use crate::lua::{create_rx_module, default_display_modules, DisplayModuleFn, Entry};
 
 pub struct FileExplorer {
     state: AppState,
@@ -25,9 +25,28 @@ pub struct FileExplorer {
 
 impl FileExplorer {
     pub fn new(config: Config) -> Result<Self> {
-        let lua = Self::init_lua()?;
-        let display_modules = Self::setup_display_modules(&lua)?;
-        let theme = Self::get_theme(&lua)?;
+        let mut display_modules = vec![];
+        let mut theme = Theme::default();
+        let lua = match Self::init_lua() {
+            Ok(lua) => {
+                display_modules = Self::setup_display_modules(&lua)?;
+                theme = Self::get_theme(&lua)?;
+                Ok(lua)
+            }
+            Err(e) => {
+                match e {
+                    ExplorerError::NoLuaScript(_) => {
+                        display_modules = default_display_modules(config.nerd_fonts);
+                        Ok(Lua::new())
+                    }
+                    _ => {
+                        eprintln!("Error initializing Lua: {}", e);
+                        Err(e)
+                    }
+                }
+            }
+        }?;
+        
         
         Ok(Self {
             state: AppState::new(config, display_modules)?,
@@ -41,6 +60,9 @@ impl FileExplorer {
     fn init_lua() -> Result<Lua> {
         let lua = Lua::new();
         let config_dir = dirs::config_dir().unwrap().join("rx").join("lua");
+        if !config_dir.exists() {
+            return Err(ExplorerError::NoLuaScript(lua));
+        }
         let config_lua = config_dir.join("init.lua");
 
         // Setup Lua path

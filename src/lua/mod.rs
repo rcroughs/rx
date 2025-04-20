@@ -77,6 +77,16 @@ pub fn create_rx_module<'lua>(lua: &'lua Lua) -> LuaResult<LuaTable> {
     Ok(rx_table)
 }
 
+pub fn default_display_modules(use_nerd_fonts: bool) -> Vec<DisplayModuleFn> {
+    let mut display_modules: Vec<DisplayModuleFn> = Vec::new();
+    if use_nerd_fonts {
+        display_modules.push(Box::new(get_icon));
+    }
+    display_modules.push(Box::new(get_name));
+    display_modules.push(Box::new(get_creation_date));
+    display_modules
+}
+
 impl LuaUserData for Entry {
     fn add_fields<'lua, F: LuaUserDataFields<Self>>(fields: &mut F) {
         fields.add_field_method_get("path", |_, this| Ok(this.path.clone()));

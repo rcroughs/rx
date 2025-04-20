@@ -33,4 +33,14 @@ impl Theme {
             highlight: to_rgb(&highlight)?,
         })
     }
+    
+    pub fn default() -> Self {
+        Theme {
+            fg: Color::White,
+            bg: Color::Black,
+            selected_fg: Color::Black,
+            selected_bg: Color::White,
+            highlight: Color::Green,
+        }
+    }
 }
